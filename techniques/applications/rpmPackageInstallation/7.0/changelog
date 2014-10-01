@@ -14,3 +14,6 @@
  -- Benoit PECCATTE <benoit.peccatte@normation.com> Tue Sep  9 08:52:55 CEST 2014
   * Version 6.0
   ** Rewrite with normal ordering and {}
+ -- Olivier MAURAS <olivier@mauras.ch> Wed, 01 Oct 2014
+  * Version 7.0
+  ** Add post-hook support
