@@ -42,6 +42,9 @@ bundle agent check_rpm_package_installation {
 		&RPM_PACKAGE_VERSION:{version |"rpm_version[&i0&]" string => "&version&";
 		}&
 
+        &RPM_POST_HOOK_COMMAND:{command |"rpm_command[&i0&]" string => "&command&";
+        }&
+
 		"index_rpmpkg" slist => getindices("rpm_package");
 
 
@@ -87,6 +90,11 @@ bundle agent check_rpm_package_installation {
 
 		"${index_rpmpkg}_package_version_defined" not => strcmp("${rpm_data[${index_rpmpkg}][1]}", "default");
 
+        # Set a class to run a post hook or not
+        &RPM_POST_HOOK_RUN:{run |"rpm_execute_command_&i0&" expression => strcmp("&run&", "true");
+        }&
+
+
 	packages:
 
 		redhat|SuSE::
@@ -115,13 +123,20 @@ bundle agent check_rpm_package_installation {
 
 	commands:
 
+        # Posthook command
+        "${rpm_command[${index_rpmpkg}]}"
+            contain    => in_shell,
+            classes    => if_else("rpm_posthook_${index_rpmpkg}_command_run_ok", "rpm_posthook_${index_rpmpkg}_command_run_failed"),
+            ifvarclass => "rpm_execute_command_${index_rpmpkg}.rpm_package_installation_${index_rpmpkg}_repaired.!rpm_package_installation_${index_rpmpkg}_error",
+            comment    => "Execute the posthook command if a package has been repaired";
+
 		zmd_restart::
 
-			"/etc/init.d/novell-zmd"
-				args       => "restart",
-        classes    => kept_if_else_persist("zmd_kept", "zmd_restarted", "could_not_restart_zmd", "${rpm_package_check_interval}"),
-        ifvarclass => "!(zmd_kept|zmd_restarted|could_not_restart_zmd).!zypper_version_ok",
-				comment    => "Restart the ZMD daemon";
+            "/etc/init.d/novell-zmd"
+                args       => "restart",
+                classes    => kept_if_else_persist("zmd_kept", "zmd_restarted", "could_not_restart_zmd", "${rpm_package_check_interval}"),
+                ifvarclass => "!(zmd_kept|zmd_restarted|could_not_restart_zmd).!zypper_version_ok",
+                comment    => "Restart the ZMD daemon";
 
 	reports:
 
@@ -148,6 +163,19 @@ bundle agent check_rpm_package_installation {
 
     (redhat|SuSE).SuSE_10.could_not_restart_zmd.!zypper_version_ok::
       "@@packageInstallation@@result_error@@${rpm_data[${index_rpmpkg}][3]}@@ZMD process@@None@@${g.execRun}##${g.uuid}@#The ZMD daemon failed to restart";
+
+    #posthook reports
+      "@@packageInstallation@@result_success@@${rpm_data[${index_rpmpkg}][3]}@@Post-modification hook@@${rpm_package[${index_rpmpkg}]}@@${g.execRun}##${g.uuid}@#No post-hook command for ${rpm_package[${index_rpmpkg}]} was defined, not executing"
+        ifvarclass => "!rpm_execute_command_${index_rpmpkg}";
+
+      "@@packageInstallation@@result_success@@$${rpm_data[${index_rpmpkg}][3]}@@Post-modification hook@@${rpm_package[${index_rpmpkg}]}@@${g.execRun}##${g.uuid}@#${rpm_package[${index_rpmpkg}]} was already in the desired state, so no command was executed"
+        ifvarclass => "rpm_execute_command_${index_rpmpkg}.rpm_package_installation_${index_rpmpkg}_kept.!rpm_package_installation_${index_rpmpkg}_repaired";
+
+      "@@packageInstallation@@result_success@@$${rpm_data[${index_rpmpkg}][3]}@@Post-modification hook@@${rpm_package[${index_rpmpkg}]}@@${g.execRun}##${g.uuid}@#The post-hook command for ${rpm_package[${index_rpmpkg}]} was correctly executed"
+        ifvarclass => "rpm_posthook_${index_rpmpkg}_command_run_ok";
+
+      "@@packageInstallation@@result_error@@$${rpm_data[${index_rpmpkg}][3]}@@Post-modification hook@@${rpm_package[${index_rpmpkg}]}@@${g.execRun}##${g.uuid}@#The post-hook command for ${rpm_package[${index_rpmpkg}]} couldn't be executed"
+        ifvarclass => "rpm_posthook_${index_rpmpkg}_command_run_failed";
 
 }
 
