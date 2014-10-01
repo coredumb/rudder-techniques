@@ -42,7 +42,7 @@ presence of a package, and if not met to enforce them.
   <TMLS>
     <TML name="rpmPackageInstallation"/>
     <TML name="rpmPackageInstallationData">
-      <OUTPATH>rpmPackageInstallation/5.1/rpmPackageInstallationData</OUTPATH>
+      <OUTPATH>rpmPackageInstallation/7.0/rpmPackageInstallationData</OUTPATH>
       <INCLUDED>false</INCLUDED>
     </TML>
   </TMLS>
@@ -85,7 +85,7 @@ presence of a package, and if not met to enforce them.
         <!--<ITEM> # CURRENTLY BROKEN IN CFENGINE #
           <LABEL>Install and update automatically</LABEL>
           <VALUE>addupdate</VALUE>
-		</ITEM>-->
+                </ITEM>-->
         <ITEM>
           <LABEL>Remove</LABEL>
           <VALUE>delete</VALUE>
@@ -99,7 +99,7 @@ presence of a package, and if not met to enforce them.
           <NAME>RPM_PACKAGE_VERSION_DEFINITION</NAME>
           <DESCRIPTION>Define package version to install</DESCRIPTION>
           <ITEM>
-            <LABEL>Use package manager default version</LABEL>
+            <LABEL>Use package manager latest version</LABEL>
             <VALUE>default</VALUE>
           </ITEM>
           <ITEM>
@@ -148,8 +148,24 @@ presence of a package, and if not met to enforce them.
             <MAYBEEMPTY>true</MAYBEEMPTY>
           </CONSTRAINT>
         </INPUT>
+        </SECTION>
+        <SECTION name="Post-modification hook" component="true" componentKey="RPM_PACKAGE_REDLIST">
+        <INPUT>
+          <NAME>RPM_PACKAGE_POST_HOOK_RUN</NAME> 
+          <DESCRIPTION>Should the command(s) below be run if the above package has been modified?</DESCRIPTION>
+          <CONSTRAINT><TYPE>boolean</TYPE></CONSTRAINT>
+        </INPUT>
+        <INPUT>
+          <NAME>RPM_PACKAGE_POST_HOOK_COMMAND</NAME>
+          <DESCRIPTION>Command to run after any modifications</DESCRIPTION>
+          <CONSTRAINT>
+            <TYPE>textarea</TYPE>
+            <MAYBEEMPTY>true</MAYBEEMPTY>
+          </CONSTRAINT>
+        </INPUT>
+        </SECTION>
       </SECTION>
-    </SECTION>
   </SECTIONS>
+</TECHNIQUE>
 
-</TECHNIQUE>       
+
