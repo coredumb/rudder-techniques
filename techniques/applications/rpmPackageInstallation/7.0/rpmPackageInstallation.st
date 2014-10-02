@@ -42,15 +42,10 @@ bundle agent check_rpm_package_installation {
         &RPM_PACKAGE_VERSION:{version |"rpm_version[&i0&]" string => "&version&";
         }&
 
-        &RPM_POST_HOOK_COMMAND:{command |"rpm_command[&i0&]" string => "&command&";
+        &RPM_PACKAGE_POST_HOOK_COMMAND:{command |"rpm_command[&i0&]" string => "&command&";
         }&
 
         "index_rpmpkg" slist => getindices("rpm_package");
-
-        # Get last version for updates
-        "${index_rpmpkg}_update_version" string => execresult("/usr/bin/yum list ${rpm_package[${index_rpmpkg}]} | /bin/awk 'END {print $2}'","useshell"),
-            classes     => rudder_common_classes("${index_rpmpkg}_update_check"),
-            ifvarclass  => "!(${index_rpmpkg}_update_check_kept|${index_rpmpkg}_update_check_repaired|${index_rpmpkg}_update_check_failed)";
 
     # If the promises have been updated, we need to remove previously
     # defined persistent classes (by setting there persistence to 1 minutes)
@@ -90,6 +85,17 @@ bundle agent check_rpm_package_installation {
             string  => "undefine",
             classes => cancel_all_classes("${zmd_classes_to_cancel_on_update}");
 
+    redhat::
+        # First export the list of available updates - Yes we are cheating
+        "get_update_list"   string => execresult("/usr/bin/yum --quiet check-update > ${sys.workdir}/state/software_updates.csv","useshell"),
+            classes     => rudder_common_classes("get_update_list"),
+            ifvarclass  => "!get_update_list";
+
+        # Get last version for updates
+        "${index_rpmpkg}_update_version" string => execresult("/bin/grep ${rpm_package[${index_rpmpkg}]} ${sys.workdir}/state/software_updates.csv | /bin/awk 'END {print $2}' | /bin/cut -f 2 -d :","useshell"),
+            classes     => rudder_common_classes("${index_rpmpkg}_update_check"),
+            ifvarclass  => "!(${index_rpmpkg}_update_check_kept|${index_rpmpkg}_update_check_repaired|${index_rpmpkg}_update_check_failed)";
+
     classes:
 
         "${index_rpmpkg}_package_version_defined" not => strcmp("${rpm_data[${index_rpmpkg}][1]}", "default");
@@ -108,8 +114,8 @@ bundle agent check_rpm_package_installation {
                 package_select  => "==",
                 package_version => "${${index_rpmpkg}_update_version}",
                 classes         => rudder_common_classes_persist("rpm_package_installation_${index_rpmpkg}", "${rpm_package_check_interval}"),
-                ifvarclass      => "!${index_rpmpkg}_package_version_defined",
-                comment         => "Handling ${rpm_package[${index_rpmpkg}]} using WTF, policy : ${rpm_data[${index_rpmpkg}][0]}";
+                ifvarclass      => "!${index_rpmpkg}_package_version_defined.!(rpm_package_installation_${index_rpmpkg}_repaired|rpm_package_installation_${index_rpmpkg}_error|rpm_package_installation_${index_rpmpkg}_kept)",
+                comment         => "Handling ${rpm_package[${index_rpmpkg}]} using yum_nobulk, policy : ${rpm_data[${index_rpmpkg}][0]}";
 
         SuSE::
             "${rpm_package[${index_rpmpkg}]}"
@@ -141,8 +147,8 @@ bundle agent check_rpm_package_installation {
         # Posthook command
         "${rpm_command[${index_rpmpkg}]}"
             contain    => in_shell,
-            classes    => if_else("rpm_posthook_${index_rpmpkg}_command_run_ok", "rpm_posthook_${index_rpmpkg}_command_run_failed"),
-            ifvarclass => "rpm_execute_command_${index_rpmpkg}.rpm_package_installation_${index_rpmpkg}_repaired.!rpm_package_installation_${index_rpmpkg}_error",
+            classes    => if_else("rpm_command_${index_rpmpkg}_run_ok", "rpm_command_${index_rpmpkg}_run_failed"),
+            ifvarclass => "rpm_execute_command_${index_rpmpkg}.rpm_package_installation_${index_rpmpkg}_repaired.!(rpm_package_installation_${index_rpmpkg}_error|rpm_package_installation_${index_rpmpkg}_kept)",
             comment    => "Execute the posthook command if a package has been repaired";
 
         zmd_restart::
@@ -166,6 +172,19 @@ bundle agent check_rpm_package_installation {
             "@@packageInstallation@@result_success@@${rpm_data[${index_rpmpkg}][3]}@@RHEL/CentOS/SuSE packages@@${rpm_package[${index_rpmpkg}]}@@${g.execRun}##${g.uuid}@#No action required for RPM package ${rpm_package[${index_rpmpkg}]} with policy: ${rpm_data[${index_rpmpkg}][0]}"
         ifvarclass => canonify("rpm_package_installation_${index_rpmpkg}_kept");
 
+    #posthook reports
+      "@@packageInstallation@@result_success@@${rpm_data[${index_rpmpkg}][3]}@@Post-modification hook@@${rpm_package[${index_rpmpkg}]}@@${g.execRun}##${g.uuid}@#No post-hook command for ${rpm_package[${index_rpmpkg}]} was defined, not executing"
+        ifvarclass => "!rpm_execute_command_${index_rpmpkg}";
+
+      "@@packageInstallation@@result_success@@$${rpm_data[${index_rpmpkg}][3]}@@Post-modification hook@@${rpm_package[${index_rpmpkg}]}@@${g.execRun}##${g.uuid}@#${rpm_package[${index_rpmpkg}]} was already in the desired state, so no command was executed"
+        ifvarclass => "rpm_package_installation_${index_rpmpkg}_kept.!rpm_package_installation_${index_rpmpkg}_repaired";
+
+      "@@packageInstallation@@result_success@@$${rpm_data[${index_rpmpkg}][3]}@@Post-modification hook@@${rpm_package[${index_rpmpkg}]}@@${g.execRun}##${g.uuid}@#The post-hook command for ${rpm_package[${index_rpmpkg}]} was correctly executed"
+        ifvarclass => "rpm_command_${index_rpmpkg}_run_ok";
+
+      "@@packageInstallation@@result_error@@$${rpm_data[${index_rpmpkg}][3]}@@Post-modification hook@@${rpm_package[${index_rpmpkg}]}@@${g.execRun}##${g.uuid}@#The post-hook command for ${rpm_package[${index_rpmpkg}]} couldn't be executed"
+        ifvarclass => "rpm_command_${index_rpmpkg}_run_failed";
+
     # ZMD Process presence related reports
     (redhat|SuSE).!(SuSE_10.!zypper_version_ok)::
       "@@packageInstallation@@result_success@@${rpm_data[${index_rpmpkg}][3]}@@ZMD process@@None@@${g.execRun}##${g.uuid}@#ZMD process presence verification not necessary. Skipping ...";
@@ -178,19 +197,6 @@ bundle agent check_rpm_package_installation {
 
     (redhat|SuSE).SuSE_10.could_not_restart_zmd.!zypper_version_ok::
       "@@packageInstallation@@result_error@@${rpm_data[${index_rpmpkg}][3]}@@ZMD process@@None@@${g.execRun}##${g.uuid}@#The ZMD daemon failed to restart";
-
-    #posthook reports
-      "@@packageInstallation@@result_success@@${rpm_data[${index_rpmpkg}][3]}@@Post-modification hook@@${rpm_package[${index_rpmpkg}]}@@${g.execRun}##${g.uuid}@#No post-hook command for ${rpm_package[${index_rpmpkg}]} was defined, not executing"
-        ifvarclass => "!rpm_execute_command_${index_rpmpkg}";
-
-      "@@packageInstallation@@result_success@@$${rpm_data[${index_rpmpkg}][3]}@@Post-modification hook@@${rpm_package[${index_rpmpkg}]}@@${g.execRun}##${g.uuid}@#${rpm_package[${index_rpmpkg}]} was already in the desired state, so no command was executed"
-        ifvarclass => "rpm_execute_command_${index_rpmpkg}.rpm_package_installation_${index_rpmpkg}_kept.!rpm_package_installation_${index_rpmpkg}_repaired";
-
-      "@@packageInstallation@@result_success@@$${rpm_data[${index_rpmpkg}][3]}@@Post-modification hook@@${rpm_package[${index_rpmpkg}]}@@${g.execRun}##${g.uuid}@#The post-hook command for ${rpm_package[${index_rpmpkg}]} was correctly executed"
-        ifvarclass => "rpm_posthook_${index_rpmpkg}_command_run_ok";
-
-      "@@packageInstallation@@result_error@@$${rpm_data[${index_rpmpkg}][3]}@@Post-modification hook@@${rpm_package[${index_rpmpkg}]}@@${g.execRun}##${g.uuid}@#The post-hook command for ${rpm_package[${index_rpmpkg}]} couldn't be executed"
-        ifvarclass => "rpm_posthook_${index_rpmpkg}_command_run_failed";
 
 }
 
@@ -252,4 +258,3 @@ body package_method generic_nobulk(rpm_pkg_timeout) {
         package_verify_command        => "/usr/bin/rug verify -y$"; # $ means no args
 
 }
-
