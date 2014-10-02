@@ -47,6 +47,10 @@ bundle agent check_rpm_package_installation {
 
         "index_rpmpkg" slist => getindices("rpm_package");
 
+        # Get last version for updates
+        "${index_rpmpkg}_update_version" string => execresult("/usr/bin/yum list ${rpm_package[${index_rpmpkg}]} | /bin/awk 'END {print $2}'","useshell"),
+            classes     => rudder_common_classes("${index_rpmpkg}_update_check"),
+            ifvarclass  => "!(${index_rpmpkg}_update_check_kept|${index_rpmpkg}_update_check_repaired|${index_rpmpkg}_update_check_failed)";
 
     # If the promises have been updated, we need to remove previously
     # defined persistent classes (by setting there persistence to 1 minutes)
@@ -97,22 +101,33 @@ bundle agent check_rpm_package_installation {
 
     packages:
 
+        redhat::
+            "${rpm_package[${index_rpmpkg}]}"
+                package_policy  => "${rpm_data[${index_rpmpkg}][0]}",
+                package_method  => generic_nobulk("30"),
+                package_select  => "==",
+                package_version => "${${index_rpmpkg}_update_version}",
+                classes         => rudder_common_classes_persist("rpm_package_installation_${index_rpmpkg}", "${rpm_package_check_interval}"),
+                ifvarclass      => "!${index_rpmpkg}_package_version_defined",
+                comment         => "Handling ${rpm_package[${index_rpmpkg}]} using WTF, policy : ${rpm_data[${index_rpmpkg}][0]}";
+
+        SuSE::
+            "${rpm_package[${index_rpmpkg}]}"
+                package_policy  => "${rpm_data[${index_rpmpkg}][0]}",
+                package_method  => generic_nobulk("30"),
+                classes         => rudder_common_classes_persist("rpm_package_installation_${index_rpmpkg}", "${rpm_package_check_interval}"),
+                ifvarclass      => "!${index_rpmpkg}_package_version_defined.!(rpm_package_installation_${index_rpmpkg}_repaired|rpm_package_installation_${index_rpmpkg}_error|rpm_package_installation_${index_rpmpkg}_kept)",
+                comment         => "Handling ${rpm_package[${index_rpmpkg}]} using yum_nobulk, policy : ${rpm_data[${index_rpmpkg}][0]}";
+
         redhat|SuSE::
             "${rpm_package[${index_rpmpkg}]}"
                 package_policy  => "${rpm_data[${index_rpmpkg}][0]}",
                 package_method  => generic_nobulk("30"),
-                classes => rudder_common_classes_persist("rpm_package_installation_${index_rpmpkg}", "${rpm_package_check_interval}"),
-                ifvarclass => "!${index_rpmpkg}_package_version_defined.!(rpm_package_installation_${index_rpmpkg}_repaired|rpm_package_installation_${index_rpmpkg}_error|rpm_package_installation_${index_rpmpkg}_kept)",
-                comment => "Handling ${rpm_package[${index_rpmpkg}]} using yum_nobulk, policy : ${rpm_data[${index_rpmpkg}][0]}";
-
-            "${rpm_package[${index_rpmpkg}]}"
-                package_policy   => "${rpm_data[${index_rpmpkg}][0]}",
-                package_method   => generic_nobulk("30"),
-                package_select   => "${rpm_data[${index_rpmpkg}][2]}",
-                package_version  => "${rpm_version[${index_rpmpkg}]}",
-                classes => rudder_common_classes_persist("rpm_package_installation_${index_rpmpkg}", "${rpm_package_check_interval}"),
-                ifvarclass => "${index_rpmpkg}_package_version_defined.!(rpm_package_installation_${index_rpmpkg}_repaired|rpm_package_installation_${index_rpmpkg}_error|rpm_package_installation_${index_rpmpkg}_kept)",
-                comment => "Handling ${rpm_package[${index_rpmpkg}]} using yum_nobulk, policy : ${rpm_data[${index_rpmpkg}][0]}";
+                package_select  => "${rpm_data[${index_rpmpkg}][2]}",
+                package_version => "${rpm_version[${index_rpmpkg}]}",
+                classes         => rudder_common_classes_persist("rpm_package_installation_${index_rpmpkg}", "${rpm_package_check_interval}"),
+                ifvarclass      => "${index_rpmpkg}_package_version_defined.!(rpm_package_installation_${index_rpmpkg}_repaired|rpm_package_installation_${index_rpmpkg}_error|rpm_package_installation_${index_rpmpkg}_kept)",
+                comment         => "Handling ${rpm_package[${index_rpmpkg}]} using yum_nobulk, policy : ${rpm_data[${index_rpmpkg}][0]}";
 
     processes:
 
@@ -192,6 +207,7 @@ body package_method generic_nobulk(rpm_pkg_timeout) {
     redhat::
 
         package_list_command          => "/bin/rpm -qa --qf '%{name} %{version}-%{release} %{arch}\n'";
+        package_list_update_command   => "/usr/bin/yum --quiet check-update";
 
         package_list_name_regex       => "^(\S+?)\s\S+?\s\S+$";
         package_list_version_regex    => "^\S+?\s(\S+?)\s\S+$";
@@ -201,7 +217,8 @@ body package_method generic_nobulk(rpm_pkg_timeout) {
         package_name_convention       => "${name}-${version}";
         package_list_update_ifelapsed => "${rpm_pkg_timeout}";
         package_add_command           => "/usr/bin/yum -y install";
-        package_delete_command        => "/bin/rpm -e";
+        package_delete_command        => "/usr/bin/yum -y remove";
+        package_update_command        => "/usr/bin/yum -y update";
         package_verify_command        => "/bin/rpm -V";
 
     zypper_version_ok::
@@ -235,3 +252,4 @@ body package_method generic_nobulk(rpm_pkg_timeout) {
         package_verify_command        => "/usr/bin/rug verify -y$"; # $ means no args
 
 }
+
