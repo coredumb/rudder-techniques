@@ -91,7 +91,7 @@ bundle agent check_rpm_package_installation {
         "${index_rpmpkg}_package_version_defined" not => strcmp("${rpm_data[${index_rpmpkg}][1]}", "default");
 
         # Set a class to run a post hook or not
-        &RPM_POST_HOOK_RUN:{run |"rpm_execute_command_&i0&" expression => strcmp("&run&", "true");
+        &RPM_PACKAGE_POST_HOOK_RUN:{run |"rpm_execute_command_&i0&" expression => strcmp("&run&", "true");
         }&
 
 
